@@ -4,10 +4,16 @@ extern crate futures_cpupool;
 extern crate tokio_proto;
 extern crate hyper;
 extern crate pretty_env_logger;
+extern crate tokio_postgres;
+extern crate tokio_core;
+
+use tokio_postgres::Connection;
 
 mod router;
-use tokio_proto::TcpServer;
+
 use futures::Future;
+use futures::Stream;
+use tokio_core::reactor::{Handle};
 //use futures::future::FutureResult;
 
 use hyper::{Method, StatusCode};
@@ -20,6 +26,7 @@ static INDEX: &'static [u8] = b"Try POST /echo";
 
 #[derive(Clone)]
 struct Echo {
+//    connection: &'a Connection,
     pool: CpuPool
 }
 
@@ -54,16 +61,36 @@ impl Service for Echo {
     }
 }
 
+#[allow(dead_code)]
+fn setup_db(h: &Handle) -> Connection {
+    Connection::connect(
+        "postgres://postgres@localhost:5432",
+        tokio_postgres::TlsMode::None,
+        h,
+    ).wait().unwrap()
+}
 
 fn main() {
     pretty_env_logger::init();
-    let http = Http::new();
     let addr = "127.0.0.1:1337".parse().unwrap();
-    let tcp_server = TcpServer::new(http, addr);
-    let echo = Echo{pool: CpuPool::new_num_cpus()};
-    tcp_server.serve( move || Ok(echo.clone()));
+    let mut core = tokio_core::reactor::Core::new().unwrap();
+    let server_handle = core.handle();
+//    let db_handle = core.handle();
+    let pool =  CpuPool::new_num_cpus();
 
-//    let server = Http::new().bind(&addr, || )).unwrap();
-//    println!("Listening on http://{} with 1 thread.", server.local_addr().unwrap());
-//    server.run().unwrap();
+//    let conn = setup_db(&db_handle);
+    let echo = Echo{
+        pool: pool.clone(),
+//        connection : &conn
+    };
+
+    let serve = Http::new().serve_addr_handle(&addr, &server_handle, move || Ok(echo.clone())).unwrap();
+    let h2 = server_handle.clone();
+    println!("Listening on http://{} with 1 thread.", serve.incoming_ref().local_addr());
+    server_handle.spawn(serve.for_each(move |conn| {
+        h2.spawn(conn.map(|_| ()).map_err(|err| println!("serve error: {:?}", err)));
+        Ok(())
+    }).map_err(|_| ()));
+
+    core.run(futures::future::empty::<(), ()>()).unwrap();
 }
