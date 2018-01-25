@@ -9,7 +9,7 @@ extern crate tokio_core;
 
 use tokio_postgres::Connection;
 
-mod router;
+pub mod router;
 
 use futures::Future;
 use futures::Stream;
