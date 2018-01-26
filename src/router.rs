@@ -6,18 +6,6 @@ struct Route {
     method: Method,
 }
 
-// Let think about algorithm
-
-struct ParamBuilder {
-    handler: Option<i32>,
-    children: Vec<SegmentBuilder>
-}
-
-
-struct Param {
-    handler: Option<i32>,
-    children: Option<Bounds>
-}
 
 struct Bounds {
     left: usize,
@@ -28,44 +16,113 @@ struct SegmentBuilder {
     handler: Option<i32>,
     name: String,
     children: Vec<SegmentBuilder>,
-    param: Option<Param>,
+    param: bool,
+}
+
+impl SegmentBuilder {
+    fn new<'a>(v: &'a [Route]) -> SegmentBuilder {
+        let divisor = "/";
+        let mut root = SegmentBuilder {
+            handler: None,
+            name: "".to_owned(),
+            children: Vec::new(),
+            param: false,
+        };
+
+        for route in v {
+            let parent = &mut root;
+
+            let size: usize = route.name.split(divisor).count();
+
+            for (inx, name) in route.name.split(divisor).enumerate() {
+                for child in &mut parent.children {
+                    if child.name == name {
+                        let handler = if inx + 1 == size {
+                            Some(route.handler)
+                        } else {
+                            None
+                        };
+                        child.handler = handler;
+                        continue
+                    };
+                };
+                let handler = if inx + 1 == size {
+                    Some(route.handler)
+                } else {
+                    None
+                };
+                parent.children.push(SegmentBuilder {
+                    handler,
+                    name: name.to_owned(),
+                    children: Vec::new(),
+                    param: false,
+                });
+            }
+        }
+        root
+    }
+
+
+    fn build_tree(segment_builder: &SegmentBuilder, mut segments: Vec<Segment>, mut names: String, mut left: usize, mut right: usize) -> (Vec<Segment>, String, usize, usize) {
+        left = right;
+        right += segment_builder.children.len();
+        // find string, matching, get string, otherwise, push and get
+        let left_str = match segment_builder.name.find(&segment_builder.name) {
+            Some(inx) => inx,
+            None => {
+                let inx = names.len();
+                names.push_str(&segment_builder.name);
+                inx
+            }
+        };
+        let right_str = names.len();
+
+        segments.push(Segment {
+            handler: segment_builder.handler,
+            children: Bounds {
+                left,
+                right,
+            },
+            name: Bounds {
+                left: left_str,
+                right: right_str,
+            },
+        });
+
+        for child in &segment_builder.children {
+            let ret = Self::build_tree(child, segments, names, left, right);
+            segments = ret.0;
+            names = ret.1;
+            left = ret.2;
+            right = ret.3;
+        }
+
+        (segments, names, left, right)
+    }
+
+
+    fn build(self) -> (Vec<Segment>, String) {
+        let (mut segments, mut names, _,  _) = Self::build_tree(&self, Vec::new(), String::new(), 0, 1);
+        (segments, names)
+    }
 }
 
 struct Segment {
     handler: Option<i32>,
     name: Bounds,
     children: Bounds,
-    param: Option<Param>,
+//    wildcard_child: Option<usize>,
+//    param_child: Option<usize>,
+//    is_param: bool,
 }
+
 pub struct MethodRouter {}
 
 
 impl MethodRouter {
-    fn new<'a>(v: &'a mut Vec<Route>) -> MethodRouter {
-        let divisor = "/";
-        let level_vet = Vec::new();
-        let names = String::new();
-
-
-        for route in v {
-            let mut level_count = 0;
-            let mut level = Vec::new();
-            let split = route.name.split(divisor);
-
-            for name in  {
-                level.push(SegmentBuilder {
-                    handler:None,
-                    name: Bounds{left:0, right: 0},
-                    children: Bounds{left: 0; right 0}
-
-                })
-                level_vet.push(level);
-                levent_count += 1;
-            }
-
-
-        }
-        MethodRouter{}
+    fn new<'a>(v: &'a [Route]) -> MethodRouter {
+        let builder = SegmentBuilder::new(v);
+        MethodRouter {}
     }
 }
 
@@ -94,8 +151,8 @@ pub struct RouterBuilder {
 }
 
 impl RouterBuilder {
-    fn get_vet<'a>(self, method: Method) ->  Option<&'a mut Vec<Route>> {
-        let mut vet = match method {
+    pub fn add_route<'a>(&mut self, method: Method, route: &'a str, handler: i32) {
+        let vet = match method {
             Method::Options => &mut self.options,
             Method::Get => &mut self.get,
             Method::Post => &mut self.post,
@@ -105,29 +162,22 @@ impl RouterBuilder {
             Method::Trace => &mut self.trace,
             Method::Connect => &mut self.connect,
             Method::Patch => &mut self.patch,
-            _ => return None,
-        };
-        return Some(vet)
-    }
-    pub fn add_route<'a>(&mut self, method: Method, route: &'a str, handler: i32) {
-        let mut vet = match self.get_vet(method) {
-            Some(v) => v,
-            None => return,
+            _ => return,
         };
         vet.push(Route { name: route.to_owned(), handler, method });
     }
 
     pub fn build(self) -> Option<Router> {
-        let mut router = Router {
-            options: MethodRouter::new(self.get_vet(Method::Options)?),
-            get: MethodRouter::new(self.get_vet(Method::Get)?),
-            post: MethodRouter::new(self.get_vet(Method::Post)?),
-            put: MethodRouter::new(self.get_vet(Method::Put)?),
-            delete: MethodRouter::new(self.get_vet(Method::Delete)?),
-            head: MethodRouter::new(self.get_vet(Method::Head)?),
-            trace: MethodRouter::new(self.get_vet(Method::Trace)?),
-            connect: MethodRouter::new(self.get_vet(Method::Connect)?),
-            patch: MethodRouter::new(self.get_vet(Method::Patch)?),
+        let router = Router {
+            options: MethodRouter::new(&self.options),
+            get: MethodRouter::new(&self.get),
+            post: MethodRouter::new(&self.post),
+            put: MethodRouter::new(&self.put),
+            delete: MethodRouter::new(&self.delete),
+            head: MethodRouter::new(&self.head),
+            trace: MethodRouter::new(&self.trace),
+            connect: MethodRouter::new(&self.connect),
+            patch: MethodRouter::new(&self.patch),
         };
         Some(router)
     }

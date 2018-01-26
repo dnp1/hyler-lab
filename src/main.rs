@@ -1,4 +1,4 @@
-#![deny(warnings)]
+//#![deny(warnings)]
 extern crate futures;
 extern crate futures_cpupool;
 extern crate tokio_proto;
